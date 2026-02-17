@@ -1,0 +1,7 @@
+*.log
+*.pid
+state.json
+pending-alerts.txt
+.env
+node_modules/
+.DS_Store
