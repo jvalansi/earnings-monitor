@@ -4,4 +4,7 @@ state.json
 pending-alerts.txt
 .env
 node_modules/
+__pycache__/
+*.pyc
+*.pyo
 .DS_Store

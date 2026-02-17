@@ -21,7 +21,7 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id
 
 2. **Install dependencies**:
 ```bash
-npm install # if using any Node dependencies (currently none)
+pip3 install -r requirements.txt
 ```
 
 3. **Make scripts executable**:
@@ -43,10 +43,10 @@ chmod +x start-monitor.sh
 ### Manual run
 ```bash
 # Run for today's earnings, 90s interval, 180 minutes duration
-node monitor.js
+python3 monitor.py
 
 # Custom date and timing
-node monitor.js --date 2026-02-18 --interval 60 --duration 120
+python3 monitor.py --date 2026-02-18 --interval 60 --duration 120
 ```
 
 ### Background process
@@ -60,8 +60,9 @@ node monitor.js --date 2026-02-18 --interval 60 --duration 120
 
 ## File Structure
 
-- `monitor.js` - Main monitoring script
-- `start-monitor.sh` - Background process launcher
+- `monitor.py` - Main monitoring script
+- `start-monitor.sh` - Background process launcher  
+- `requirements.txt` - Python dependencies
 - `state.json` - Tracks reported results (auto-created)
 - `monitor.log` - Process logs
 - `monitor.pid` - Process ID file
@@ -87,7 +88,8 @@ Revenue: $123.95B vs $118.66B est
 
 ## Dependencies
 
-- Node.js
+- Python 3.6+
+- `requests` library (`pip3 install requests`)
 - `openclaw` CLI (for Telegram messaging)
 - Finnhub API key (free tier sufficient)
 

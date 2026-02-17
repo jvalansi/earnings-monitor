@@ -16,6 +16,6 @@ else
 fi
 
 echo "$(date) Starting $MODE monitor (duration=${DURATION}m)" >> "$LOGFILE"
-nohup node "$SCRIPT_DIR/monitor.js" --interval 90 --duration "$DURATION" >> "$LOGFILE" 2>&1 &
+nohup python3 "$SCRIPT_DIR/monitor.py" --interval 90 --duration "$DURATION" >> "$LOGFILE" 2>&1 &
 echo $! > "$SCRIPT_DIR/monitor.pid"
 echo "Monitor started (pid=$!)"
