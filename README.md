@@ -95,12 +95,18 @@ Revenue: $123.95B vs $118.66B est
 
 **Automatic paper trading** (when Alpaca credentials are provided):
 
-- **Earnings Beat** → Buy $1000 of the stock
-- **Earnings Miss** → Short $1000 of the stock  
+- **Earnings Beat** → Buy $1000 of the stock 
+- **Earnings Miss** → No action (shorting disabled for reliability)
 - **Met Estimates** → No action
 - **No Estimate** → No action
 
-All trades are logged in `positions.json` and orders are placed as market orders during regular/extended trading hours.
+**Risk Management**:
+- All trades are market orders for immediate execution
+- Stop loss and take profit orders are planned (8% stop, 15% target)  
+- Position sizing: Fixed $1000 per trade
+- Only long positions (no shorting) for simplicity
+
+All trades are logged in `positions.json` with timestamps and order details.
 
 ## API Limits
 
