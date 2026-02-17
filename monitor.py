@@ -15,6 +15,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import requests
 
+# Import trading functionality
+try:
+    from trader import execute_earnings_trade
+    TRADING_ENABLED = True
+except ImportError as e:
+    print(f"Trading disabled - couldn't import trader: {e}")
+    TRADING_ENABLED = False
+
 # --- Config ---
 SCRIPT_DIR = Path(__file__).parent
 ENV_PATH = SCRIPT_DIR.parent / '.env'
@@ -143,6 +151,7 @@ def poll_earnings(target_date):
         beat = None
         diff = None
         pct = None
+        beat_miss_str = "met"
         
         if eps_estimate is not None:
             beat = eps_actual > eps_estimate
@@ -154,15 +163,29 @@ def poll_earnings(target_date):
         if beat is True:
             emoji = "🟢"
             verdict = f"BEAT by ${diff:.4f} ({pct:.1f}%)"
+            beat_miss_str = "beat"
         elif beat is False and eps_actual < eps_estimate:
             emoji = "🔴"
             verdict = f"MISSED by ${abs(diff):.4f} ({pct:.1f}%)"
+            beat_miss_str = "miss"
         elif beat is False:
             emoji = "🟡"
             verdict = "MET estimates"
+            beat_miss_str = "met"
         else:
             emoji = "📊"
             verdict = "No estimate available"
+            beat_miss_str = "unknown"
+        
+        # Execute trade if enabled and conditions met
+        trade_result = ""
+        if TRADING_ENABLED and beat_miss_str in ["beat", "miss"]:
+            try:
+                trade_result = execute_earnings_trade(symbol, beat_miss_str, pct)
+                print(f"Trade executed: {trade_result}")
+            except Exception as e:
+                trade_result = f"❌ Trade failed: {e}"
+                print(f"Trade error: {e}")
         
         # Format revenue
         rev_actual_str = f"${revenue_actual/1e9:.2f}B" if revenue_actual else "N/A"
@@ -173,6 +196,10 @@ def poll_earnings(target_date):
         message = (f"{emoji} {symbol} Earnings\n"
                   f"EPS: ${eps_actual} vs {eps_est_str} est → {verdict}\n"
                   f"Revenue: {rev_actual_str} vs {rev_est_str} est")
+        
+        # Add trade result to message if there was one
+        if trade_result:
+            message += f"\n\n🤖 {trade_result}"
         
         send_alert(message)
         
