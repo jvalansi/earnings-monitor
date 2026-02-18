@@ -47,19 +47,81 @@ class AlpacaTrader:
     
     def get_last_price(self, symbol):
         """Get the last trade price for a symbol"""
-        response = requests.get(f"{ALPACA_BASE_URL}/v2/stocks/{symbol}/trades/latest", headers=self.headers)
-        response.raise_for_status()
-        return float(response.json()['trade']['p'])
+        try:
+            # Try latest trade first
+            response = requests.get(f"{ALPACA_BASE_URL}/v2/stocks/{symbol}/trades/latest", headers=self.headers)
+            if response.status_code == 200:
+                return float(response.json()['trade']['p'])
+        except Exception:
+            pass
+            
+        try:
+            # Fallback to snapshot which includes last trade and quotes
+            response = requests.get(f"{ALPACA_BASE_URL}/v2/stocks/{symbol}/snapshot", headers=self.headers)
+            response.raise_for_status()
+            snapshot = response.json()
+            
+            # Try latest trade from snapshot
+            if 'latestTrade' in snapshot and snapshot['latestTrade']:
+                return float(snapshot['latestTrade']['p'])
+                
+            # Try quote midpoint as last resort
+            if 'latestQuote' in snapshot and snapshot['latestQuote']:
+                bid = float(snapshot['latestQuote']['bp'])
+                ask = float(snapshot['latestQuote']['ap'])
+                return (bid + ask) / 2
+                
+        except Exception as e:
+            raise Exception(f"Could not get price for {symbol}: {e}")
+        
+        raise Exception(f"No price data available for {symbol}")
     
     def place_order(self, symbol, side, notional=None, qty=None, order_type='market', 
-                   stop_loss_pct=None, take_profit_pct=None):
-        """Place an order with optional stop loss and take profit"""
-        order_data = {
-            'symbol': symbol,
-            'side': side,
-            'type': order_type,
-            'time_in_force': 'day'
-        }
+                   stop_loss_pct=None, take_profit_pct=None, extended_hours=True):
+        """Place an order with extended hours support"""
+        
+        # For extended hours, we need limit orders, not market orders
+        if extended_hours and order_type == 'market':
+            try:
+                # Get current price to set a reasonable limit
+                current_price = self.get_last_price(symbol)
+                
+                # Add small buffer for immediate execution (0.5% above/below market)
+                if side == 'buy':
+                    limit_price = current_price * 1.005  # Buy slightly above market
+                else:
+                    limit_price = current_price * 0.995  # Sell slightly below market
+                
+                order_data = {
+                    'symbol': symbol,
+                    'side': side,
+                    'type': 'limit',
+                    'time_in_force': 'day',
+                    'extended_hours': True,
+                    'limit_price': f'{limit_price:.2f}'
+                }
+                
+                print(f"Using limit price ${limit_price:.2f} for extended hours (market: ${current_price:.2f})")
+                
+            except Exception as e:
+                print(f"Could not get price for extended hours, falling back to regular hours: {e}")
+                # Fallback: regular hours market order
+                order_data = {
+                    'symbol': symbol,
+                    'side': side,
+                    'type': order_type,
+                    'time_in_force': 'day',
+                    'extended_hours': False
+                }
+        else:
+            # Regular market order or non-extended hours
+            order_data = {
+                'symbol': symbol,
+                'side': side,
+                'type': order_type,
+                'time_in_force': 'day',
+                'extended_hours': extended_hours if order_type != 'market' else False
+            }
         
         if notional:
             order_data['notional'] = str(notional)
@@ -140,24 +202,26 @@ class AlpacaTrader:
                 stop_price = avg_fill_price * (1 - stop_loss_pct/100)
                 profit_price = avg_fill_price * (1 + take_profit_pct/100)
                 
-                # Stop loss order
+                # Stop loss order (extended hours enabled)
                 stop_order_data = {
                     'symbol': symbol,
                     'side': 'sell',
                     'type': 'stop',
                     'qty': str(quantity),
                     'time_in_force': 'gtc',  # Good till canceled
-                    'stop_price': f'{stop_price:.2f}'
+                    'stop_price': f'{stop_price:.2f}',
+                    'extended_hours': True
                 }
                 
-                # Take profit order
+                # Take profit order (extended hours enabled)
                 profit_order_data = {
                     'symbol': symbol,
                     'side': 'sell', 
                     'type': 'limit',
                     'qty': str(quantity),
                     'time_in_force': 'gtc',
-                    'limit_price': f'{profit_price:.2f}'
+                    'limit_price': f'{profit_price:.2f}',
+                    'extended_hours': True
                 }
                 
             else:
@@ -171,7 +235,8 @@ class AlpacaTrader:
                     'type': 'stop',
                     'qty': str(quantity),
                     'time_in_force': 'gtc',
-                    'stop_price': f'{stop_price:.2f}'
+                    'stop_price': f'{stop_price:.2f}',
+                    'extended_hours': True
                 }
                 
                 profit_order_data = {
@@ -180,7 +245,8 @@ class AlpacaTrader:
                     'type': 'limit', 
                     'qty': str(quantity),
                     'time_in_force': 'gtc',
-                    'limit_price': f'{profit_price:.2f}'
+                    'limit_price': f'{profit_price:.2f}',
+                    'extended_hours': True
                 }
             
             # Place both orders
@@ -211,9 +277,9 @@ class AlpacaTrader:
     def place_bracket_order(self, symbol, side, notional, stop_loss_pct=8, take_profit_pct=15):
         """Place market order and then add stop/profit orders after fill"""
         try:
-            # Step 1: Place market order
-            print(f"Step 1: Placing market order for {symbol}")
-            market_order = self.place_order(symbol, side, notional=notional)
+            # Step 1: Place order (extended hours enabled for earnings)
+            print(f"Step 1: Placing order for {symbol} (extended hours support)")
+            market_order = self.place_order(symbol, side, notional=notional, extended_hours=True)
             if not market_order:
                 return None
                 
