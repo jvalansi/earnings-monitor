@@ -93,26 +93,166 @@ class AlpacaTrader:
         response.raise_for_status()
         return response.json()
     
-    def place_bracket_order(self, symbol, side, notional, stop_loss_pct=8, take_profit_pct=15):
-        """Place a market order with plan to add stops after fill"""
+    def wait_for_fill(self, order_id, timeout_seconds=120):
+        """Wait for an order to fill with detailed status updates"""
+        import time
+        start_time = time.time()
+        last_status = None
+        
+        while time.time() - start_time < timeout_seconds:
+            try:
+                response = requests.get(f"{ALPACA_BASE_URL}/v2/orders/{order_id}", 
+                                      headers=self.headers)
+                response.raise_for_status()
+                order = response.json()
+                
+                current_status = order['status']
+                if current_status != last_status:
+                    print(f"Order status: {current_status}")
+                    last_status = current_status
+                
+                if order['status'] == 'filled':
+                    filled_qty = order['filled_qty']
+                    avg_price = order['filled_avg_price']
+                    print(f"✅ Order filled: {filled_qty} shares @ ${avg_price}")
+                    return order
+                elif order['status'] in ['canceled', 'rejected']:
+                    print(f"❌ Order {order_id} failed: {order['status']}")
+                    return None
+                elif order['status'] == 'partially_filled':
+                    filled = order['filled_qty']
+                    total = order['qty'] or order.get('notional', 'N/A')
+                    print(f"⏳ Partial fill: {filled}/{total}")
+                    
+                time.sleep(3)  # Check every 3 seconds
+            except Exception as e:
+                print(f"Error checking order status: {e}")
+                time.sleep(3)
+                
+        print(f"⏰ Order {order_id} timeout after {timeout_seconds}s (last status: {last_status})")
+        return None
+    
+    def place_stop_orders(self, symbol, side, quantity, avg_fill_price, stop_loss_pct=8, take_profit_pct=15):
+        """Place stop loss and take profit orders after main order fills"""
         try:
-            # For now, just place a simple market order
-            # TODO: Add stop/profit orders after the main order fills
-            print(f"Placing market order (stops will be added after fill)")
-            return self.place_order(symbol, side, notional=notional)
+            if side == 'buy':
+                # Long position: stop below, profit above
+                stop_price = avg_fill_price * (1 - stop_loss_pct/100)
+                profit_price = avg_fill_price * (1 + take_profit_pct/100)
+                
+                # Stop loss order
+                stop_order_data = {
+                    'symbol': symbol,
+                    'side': 'sell',
+                    'type': 'stop',
+                    'qty': str(quantity),
+                    'time_in_force': 'gtc',  # Good till canceled
+                    'stop_price': f'{stop_price:.2f}'
+                }
+                
+                # Take profit order
+                profit_order_data = {
+                    'symbol': symbol,
+                    'side': 'sell', 
+                    'type': 'limit',
+                    'qty': str(quantity),
+                    'time_in_force': 'gtc',
+                    'limit_price': f'{profit_price:.2f}'
+                }
+                
+            else:
+                # Short position: stop above, profit below
+                stop_price = avg_fill_price * (1 + stop_loss_pct/100)
+                profit_price = avg_fill_price * (1 - take_profit_pct/100)
+                
+                stop_order_data = {
+                    'symbol': symbol,
+                    'side': 'buy',
+                    'type': 'stop',
+                    'qty': str(quantity),
+                    'time_in_force': 'gtc',
+                    'stop_price': f'{stop_price:.2f}'
+                }
+                
+                profit_order_data = {
+                    'symbol': symbol,
+                    'side': 'buy',
+                    'type': 'limit', 
+                    'qty': str(quantity),
+                    'time_in_force': 'gtc',
+                    'limit_price': f'{profit_price:.2f}'
+                }
+            
+            # Place both orders
+            stop_response = requests.post(f"{ALPACA_BASE_URL}/v2/orders", 
+                                        headers=self.headers, json=stop_order_data)
+            profit_response = requests.post(f"{ALPACA_BASE_URL}/v2/orders",
+                                          headers=self.headers, json=profit_order_data)
+            
+            results = {}
+            if stop_response.status_code == 201:
+                results['stop_order'] = stop_response.json()
+                print(f"✅ Stop loss placed at ${stop_price:.2f}")
+            else:
+                print(f"❌ Stop loss failed: {stop_response.text}")
+                
+            if profit_response.status_code == 201:
+                results['profit_order'] = profit_response.json()
+                print(f"✅ Take profit placed at ${profit_price:.2f}")
+            else:
+                print(f"❌ Take profit failed: {profit_response.text}")
+                
+            return results
             
         except Exception as e:
-            print(f"Market order failed: {e}")
-            return None
+            print(f"Error placing stop orders: {e}")
+            return {}
+    
+    def place_bracket_order(self, symbol, side, notional, stop_loss_pct=8, take_profit_pct=15):
+        """Place market order and then add stop/profit orders after fill"""
+        try:
+            # Step 1: Place market order
+            print(f"Step 1: Placing market order for {symbol}")
+            market_order = self.place_order(symbol, side, notional=notional)
+            if not market_order:
+                return None
+                
+            order_id = market_order['id']
+            print(f"Market order placed: {order_id}")
+            
+            # Step 2: Wait for fill
+            print("Step 2: Waiting for fill...")
+            filled_order = self.wait_for_fill(order_id, timeout_seconds=60)
+            if not filled_order:
+                print("⚠️  Order did not fill in time, stops will need to be placed manually")
+                market_order['stop_orders'] = {'status': 'timeout', 'message': 'Manual stops required'}
+                return market_order
+            
+            # Step 3: Place stop and profit orders
+            quantity = abs(float(filled_order['filled_qty']))
+            avg_price = float(filled_order['filled_avg_price'])
+            
+            print(f"Step 3: Filled {quantity} shares at ${avg_price:.2f}, placing stops...")
+            stop_orders = self.place_stop_orders(symbol, side, quantity, avg_price, 
+                                               stop_loss_pct, take_profit_pct)
+            
+            # Combine results
+            market_order['stop_orders'] = stop_orders
+            return market_order
+            
+        except Exception as e:
+            print(f"Bracket order process failed: {e}")
+            return self.place_order(symbol, side, notional=notional)  # Fallback
     
     def buy_stock(self, symbol, amount=1000, stop_loss_pct=8, take_profit_pct=15):
-        """Buy stock with dollar amount and risk management"""
+        """Buy stock with dollar amount and automatic stop/profit orders"""
         try:
-            print(f"Placing BUY order for {symbol}: ${amount} (Stop: -{stop_loss_pct}%, Target: +{take_profit_pct}%)")
+            print(f"Executing BUY strategy for {symbol}: ${amount}")
             order = self.place_bracket_order(symbol, 'buy', amount, stop_loss_pct, take_profit_pct)
             
-            # Log the trade
-            self.log_trade(symbol, 'buy', amount, order.get('id'), stop_loss_pct, take_profit_pct)
+            # Enhanced logging with stop order details
+            stop_orders = order.get('stop_orders', {}) if order else {}
+            self.log_trade(symbol, 'buy', amount, order.get('id'), stop_loss_pct, take_profit_pct, stop_orders)
             
             return order
         except Exception as e:
@@ -133,7 +273,7 @@ class AlpacaTrader:
             print(f"Failed to short {symbol}: {e}")
             return None
     
-    def log_trade(self, symbol, action, amount, order_id, stop_loss_pct=None, take_profit_pct=None):
+    def log_trade(self, symbol, action, amount, order_id, stop_loss_pct=None, take_profit_pct=None, stop_orders=None):
         """Log trade to positions file"""
         trade_data = {
             'symbol': symbol,
@@ -142,6 +282,7 @@ class AlpacaTrader:
             'order_id': order_id,
             'stop_loss_pct': stop_loss_pct,
             'take_profit_pct': take_profit_pct,
+            'stop_orders': stop_orders or {},
             'timestamp': datetime.now().isoformat()
         }
         
@@ -186,22 +327,23 @@ class AlpacaTrader:
 
 def execute_earnings_trade(symbol, beat_miss, beat_percentage=None, 
                           stop_loss_pct=8, take_profit_pct=15):
-    """Execute trade based on earnings result"""
+    """Execute trade based on earnings result with automatic stops"""
     trader = AlpacaTrader()
     
     try:
         if beat_miss == 'beat':
-            print(f"📈 {symbol} BEAT earnings - executing BUY trade")
+            print(f"📈 {symbol} BEAT earnings - executing BUY with stops")
             order = trader.buy_stock(symbol, 1000, stop_loss_pct, take_profit_pct)
             if order:
-                return f"✅ Bought $1000 of {symbol} (planning stops: -{stop_loss_pct}%/+{take_profit_pct}%)"
+                stop_orders = order.get('stop_orders', {})
+                stop_status = "✅ Stops placed" if stop_orders else "⚠️ Manual stops needed"
+                return f"✅ Bought $1000 of {symbol} | {stop_status} (Stop: -{stop_loss_pct}%, Target: +{take_profit_pct}%)"
             else:
                 return f"❌ Failed to buy {symbol}"
                 
         elif beat_miss == 'miss':
-            # Skip shorting for now - too many issues with availability
-            print(f"📉 {symbol} MISSED earnings - skipping short (not implemented)")
-            return f"ℹ️ {symbol} missed - shorts disabled for reliability"
+            print(f"📉 {symbol} MISSED earnings - no action (shorts disabled)")
+            return f"ℹ️ {symbol} missed - no trade (shorts disabled)"
         else:
             return f"ℹ️ {symbol} met estimates - no trade executed"
             
