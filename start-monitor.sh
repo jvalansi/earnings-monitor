@@ -1,4 +1,6 @@
 #!/bin/bash
+export PATH=$PATH:/home/ubuntu/.npm-global/bin
+cd /home/ubuntu/.openclaw/workspace/earnings
 # Start earnings monitor as a background process (no LLM needed)
 # Usage: start-monitor.sh [pre-market|after-hours]
 
