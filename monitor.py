@@ -25,10 +25,10 @@ except ImportError as e:
 
 # Import stock filtering
 try:
-    from filters import filter_earnings_for_crsp
+    from filters import filter_earnings_for_major_exchanges
     FILTERING_ENABLED = True
 except ImportError as e:
-    print(f"CRSP filtering disabled - couldn't import filters: {e}")
+    print(f"Exchange filtering disabled - couldn't import filters: {e}")
     FILTERING_ENABLED = False
 
 # --- Config ---
@@ -135,12 +135,12 @@ def poll_earnings(target_date):
         earnings = fetch_earnings(target_date)
         print(f"Fetched {len(earnings)} total earnings")
         
-        # Filter for CRSP US Total Market Index constituents
+        # Filter for major US exchange stocks only
         if FILTERING_ENABLED:
-            earnings = filter_earnings_for_crsp(earnings)
-            print(f"After CRSP filtering: {len(earnings)} eligible stocks")
+            earnings = filter_earnings_for_major_exchanges(earnings)
+            print(f"After exchange filtering: {len(earnings)} eligible stocks")
         else:
-            print("CRSP filtering disabled - processing all stocks")
+            print("Exchange filtering disabled - processing all stocks")
             
     except Exception as e:
         print(f"Fetch error: {e}")

@@ -34,58 +34,40 @@ def get_stock_profile(symbol):
         pass
     return {}
 
-def is_crsp_eligible(symbol, earnings_data=None):
+def is_major_exchange_stock(symbol, earnings_data=None):
     """
-    Check if stock is eligible for CRSP US Total Market Index
+    Check if stock is listed on major US exchanges
     
-    CRSP Total Market criteria (approximation):
-    - US incorporated company
-    - Market cap > $100M
-    - Listed on major US exchange (NYSE, NASDAQ)
-    - Common stock (not REITs, ADRs, etc.)
+    Criteria:
+    - NYSE (New York Stock Exchange)
+    - NYSE Market (NYSE American)  
+    - NASDAQ
+    - ARCA (NYSE Arca)
     """
     
-    # Quick exclude list for common non-equity tickers
-    exclude_patterns = [
-        'REIT', 'LP', 'PFD', '/WS', '/WT', '-', '.'
-    ]
-    
-    for pattern in exclude_patterns:
-        if pattern in symbol:
-            return False, f"Excluded pattern: {pattern}"
-    
-    # Use market cap from earnings data if available
-    if earnings_data:
-        # Check if we have revenue estimate (proxy for real companies)
-        revenue_est = earnings_data.get('revenueEstimate')
-        if revenue_est and revenue_est > 50000000:  # $50M+ revenue
-            return True, "Revenue-based inclusion"
-    
-    # Fallback: get profile data
+    # Get profile data for exchange info
     profile = get_stock_profile(symbol)
     if not profile:
         return False, "No profile data"
     
-    # Check market cap
-    market_cap = profile.get('marketCapitalization')
-    if not market_cap or market_cap < 100:  # $100M
-        return False, f"Market cap too small: ${market_cap}M"
-    
-    # Check exchange (flexible matching)
+    # Check exchange
     exchange = profile.get('exchange', '').upper()
-    major_exchanges = ['NASDAQ', 'NYSE', 'NEW YORK', 'GLOBAL MARKET']
-    if not any(ex in exchange for ex in major_exchanges):
-        return False, f"Not major US exchange: {exchange}"
     
-    # Check country
-    country = profile.get('country', '').upper()
-    if country != 'US':
-        return False, f"Not US company: {country}"
+    # Major US exchanges
+    major_exchanges = [
+        'NYSE', 'NEW YORK STOCK EXCHANGE',
+        'NASDAQ', 'GLOBAL MARKET', 
+        'ARCA', 'NYSE ARCA',
+        'NYSE AMERICAN', 'NYSE MKT'
+    ]
     
-    return True, f"Eligible: ${market_cap}M market cap, {exchange}"
+    if any(ex in exchange for ex in major_exchanges):
+        return True, f"Major exchange: {exchange}"
+    else:
+        return False, f"Not major exchange: {exchange}"
 
-def filter_earnings_for_crsp(earnings_list):
-    """Filter earnings list to only include CRSP-eligible stocks"""
+def filter_earnings_for_major_exchanges(earnings_list):
+    """Filter earnings list to only include major US exchange stocks"""
     
     eligible = []
     stats = {'total': len(earnings_list), 'eligible': 0, 'excluded': 0}
@@ -98,7 +80,7 @@ def filter_earnings_for_crsp(earnings_list):
             stats['excluded'] += 1
             continue
             
-        is_eligible, reason = is_crsp_eligible(symbol, earning)
+        is_eligible, reason = is_major_exchange_stock(symbol, earning)
         
         if is_eligible:
             eligible.append(earning)
@@ -108,7 +90,7 @@ def filter_earnings_for_crsp(earnings_list):
             stats['excluded'] += 1
             print(f"❌ {symbol:6s}: {reason}")
     
-    print(f"\n📊 Filter Results: {stats['eligible']}/{stats['total']} stocks eligible ({stats['eligible']/stats['total']*100:.1f}%)")
+    print(f"\n📊 Exchange Filter Results: {stats['eligible']}/{stats['total']} stocks eligible ({stats['eligible']/stats['total']*100:.1f}%)")
     return eligible
 
 # Test function
@@ -116,8 +98,8 @@ if __name__ == '__main__':
     # Test with some sample symbols
     test_symbols = ['AAPL', 'GOOGL', 'TSLA', 'NVDA', 'MSFT', 'XYZ', 'REIT.TO']
     
-    print("Testing CRSP eligibility filter:")
+    print("Testing major exchange filter:")
     for symbol in test_symbols:
-        eligible, reason = is_crsp_eligible(symbol)
+        eligible, reason = is_major_exchange_stock(symbol)
         status = "✅" if eligible else "❌"
         print(f"{status} {symbol:6s}: {reason}")
