@@ -69,6 +69,7 @@ python3 monitor.py --date 2026-02-18 --interval 60 --duration 120
 
 - `monitor.py` - Main monitoring script
 - `trader.py` - Paper trading module (Alpaca integration)
+- `filters.py` - CRSP US Total Market Index stock filtering
 - `start-monitor.sh` - Background process launcher  
 - `requirements.txt` - Python dependencies
 - `state.json` - Tracks reported results (auto-created)
@@ -92,6 +93,12 @@ Revenue: $123.95B vs $118.66B est
 - 📊 No estimate available
 
 ## Trading Strategy
+
+**Stock Selection**: Only trades stocks eligible for CRSP US Total Market Index:
+- US companies listed on major exchanges (NYSE, NASDAQ)
+- Market cap > $100M OR revenue > $50M
+- Excludes REITs, preferred shares, warrants
+- ~80-85% of earnings reports pass filter (liquid, established companies)
 
 **Automatic paper trading** (when Alpaca credentials are provided):
 

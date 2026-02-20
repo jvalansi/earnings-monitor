@@ -23,6 +23,14 @@ except ImportError as e:
     print(f"Trading disabled - couldn't import trader: {e}")
     TRADING_ENABLED = False
 
+# Import stock filtering
+try:
+    from filters import filter_earnings_for_crsp
+    FILTERING_ENABLED = True
+except ImportError as e:
+    print(f"CRSP filtering disabled - couldn't import filters: {e}")
+    FILTERING_ENABLED = False
+
 # --- Config ---
 SCRIPT_DIR = Path(__file__).parent
 ENV_PATH = SCRIPT_DIR.parent / '.env'
@@ -125,6 +133,15 @@ def poll_earnings(target_date):
     
     try:
         earnings = fetch_earnings(target_date)
+        print(f"Fetched {len(earnings)} total earnings")
+        
+        # Filter for CRSP US Total Market Index constituents
+        if FILTERING_ENABLED:
+            earnings = filter_earnings_for_crsp(earnings)
+            print(f"After CRSP filtering: {len(earnings)} eligible stocks")
+        else:
+            print("CRSP filtering disabled - processing all stocks")
+            
     except Exception as e:
         print(f"Fetch error: {e}")
         return 0
